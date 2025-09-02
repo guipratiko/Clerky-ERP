@@ -4610,7 +4610,7 @@ async function sendToN8n(messageData) {
       nomeContato: messageData.contactName || 'Desconhecido',
       fromMe: fromMe,
       origem: messageData.origem || (fromMe ? 'enviada' : 'recebida'),
-      webhookReceiveUrl: `${process.env.BASE_URL || 'http://localhost:3001'}/webhook/n8n/receive`
+      webhookReceiveUrl: `${process.env.BASE_URL || `http://${DOMAIN}:${PORT}`}/webhook/n8n/receive`
     };
     
     // Se for mensagem de áudio, baixar e converter para base64
@@ -13276,13 +13276,16 @@ app.get('/health', (req, res) => {
 // Servidor
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
+const SERVER_HOST = process.env.SERVER_HOST || '0.0.0.0'; // Host para bind do servidor
+const DOMAIN = process.env.DOMAIN || HOST; // Domínio para URLs públicas
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, SERVER_HOST, () => {
   console.log('🚀 Clerky CRM rodando na porta', PORT);
-  console.log('🌐 Acesse: http://' + HOST + ':' + PORT);
+  console.log('🌐 Acesse: http://' + DOMAIN + ':' + PORT);
   console.log('📱 Aguardando conexão com WhatsApp...');
   console.log('⚡ Modo: Tempo real (sem salvar contatos no banco)');
-  console.log('🏥 Health check disponível em: http://' + HOST + ':' + PORT + '/health');
+  console.log('🏥 Health check disponível em: http://' + DOMAIN + ':' + PORT + '/health');
+  console.log('🔧 Servidor bind em:', SERVER_HOST + ':' + PORT);
 });
 
 // Graceful shutdown para EasyPanel
@@ -13341,6 +13344,7 @@ process.on('uncaughtException', (error) => {
   // Se for erro de DNS, apenas logar e continuar
   if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
     console.log('🌐 Erro de rede detectado, continuando execução...');
+    console.log('💡 Verifique se o domínio está configurado corretamente no DNS');
     return;
   }
   
@@ -13355,6 +13359,7 @@ process.on('unhandledRejection', (reason, promise) => {
   // Se for erro de DNS, apenas logar e continuar
   if (reason && (reason.code === 'ENOTFOUND' || reason.code === 'ECONNREFUSED')) {
     console.log('🌐 Erro de rede detectado, continuando execução...');
+    console.log('💡 Verifique se o domínio está configurado corretamente no DNS');
     return;
   }
   
