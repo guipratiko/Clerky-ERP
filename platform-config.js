@@ -188,10 +188,8 @@ class PlatformConfig {
       qrMaxRetries: 3,
       takeoverOnConflict: true,
       takeoverTimeoutMs: 90000, // Aumentado para 1.5 minutos
-      webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-      }
+      // webVersionCache removido para evitar problemas de DNS
+      // O WhatsApp Web.js usará a versão padrão
     };
   }
 

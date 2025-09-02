@@ -13258,6 +13258,13 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 // Error handlers
 process.on('uncaughtException', (error) => {
   console.error('❌ Erro não capturado:', error);
+  
+  // Se for erro de DNS, apenas logar e continuar
+  if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+    console.log('🌐 Erro de rede detectado, continuando execução...');
+    return;
+  }
+  
   if (!isShuttingDown) {
     gracefulShutdown('UNCAUGHT_EXCEPTION');
   }
@@ -13265,6 +13272,13 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Promise rejeitada:', reason);
+  
+  // Se for erro de DNS, apenas logar e continuar
+  if (reason && (reason.code === 'ENOTFOUND' || reason.code === 'ECONNREFUSED')) {
+    console.log('🌐 Erro de rede detectado, continuando execução...');
+    return;
+  }
+  
   if (!isShuttingDown) {
     gracefulShutdown('UNHANDLED_REJECTION');
   }
