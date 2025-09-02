@@ -17,6 +17,10 @@ const axios = require('axios');
 const platformConfig = require('./platform-config');
 require('dotenv').config();
 
+// Configurar timeouts globais para axios
+axios.defaults.timeout = parseInt(process.env.CONNECTION_TIMEOUT) || 10000;
+axios.defaults.dnsTimeout = parseInt(process.env.DNS_TIMEOUT) || 5000;
+
 // Inicializar app
 const app = express();
 const server = http.createServer(app);
@@ -38,11 +42,20 @@ app.use(express.urlencoded({
 app.use(express.static('public'));
 
 // Configuração de sessão
+if (process.env.NODE_ENV === 'production') {
+  console.log('⚠️  ATENÇÃO: Usando MemoryStore para sessões. Para produção, considere usar Redis ou MongoDB store.');
+  console.log('💡 Para melhor performance, configure SESSION_STORE=redis ou SESSION_STORE=mongodb');
+}
+
 app.use(session({
-  secret: 'clerky-crm-secret-key-2025',
+  secret: process.env.SESSION_SECRET || 'clerky-crm-secret-key-2025',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
+  cookie: { 
+    secure: process.env.SESSION_COOKIE_SECURE === 'true',
+    httpOnly: process.env.SESSION_COOKIE_HTTPONLY !== 'false',
+    maxAge: parseInt(process.env.SESSION_COOKIE_MAXAGE) || 24 * 60 * 60 * 1000
+  }
 }));
 
 // Configuração do multer para upload
