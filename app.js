@@ -21,6 +21,20 @@ require('dotenv').config();
 axios.defaults.timeout = parseInt(process.env.CONNECTION_TIMEOUT) || 10000;
 axios.defaults.dnsTimeout = parseInt(process.env.DNS_TIMEOUT) || 5000;
 
+// Interceptor para debug de requisições (apenas em desenvolvimento)
+if (process.env.NODE_ENV === 'development') {
+  axios.interceptors.request.use(
+    (config) => {
+      console.log('🌐 Requisição axios:', config.method?.toUpperCase(), config.url);
+      return config;
+    },
+    (error) => {
+      console.error('❌ Erro na requisição axios:', error);
+      return Promise.reject(error);
+    }
+  );
+}
+
 // Inicializar app
 const app = express();
 const server = http.createServer(app);
@@ -362,6 +376,20 @@ async function loadIntegrationsFromDB() {
         appmaxApiUrl: config.appmaxApiUrl || '',
         appmaxWebhookSecret: config.appmaxWebhookSecret || ''
       };
+      
+      // Verificar se há URLs problemáticas e desabilitar IA se necessário
+      const hasProblematicUrls = integrationsConfig.n8nTestUrl.includes('madeondemand') || 
+                                 integrationsConfig.n8nProdUrl.includes('madeondemand') ||
+                                 integrationsConfig.n8nSentUrl.includes('madeondemand');
+      
+      if (hasProblematicUrls) {
+        console.log('⚠️  URLs problemáticas detectadas, desabilitando IA temporariamente');
+        integrationsConfig.iaEnabled = false;
+        integrationsConfig.n8nTestUrl = '';
+        integrationsConfig.n8nProdUrl = '';
+        integrationsConfig.n8nSentUrl = '';
+      }
+      
       console.log('🔗 Configurações de integração carregadas do banco:', integrationsConfig);
     } else {
       console.log('🔗 Nenhuma configuração de integração encontrada, usando padrões');
@@ -3493,6 +3521,44 @@ app.post('/api/integrations/test', requireAuth, async (req, res) => {
         statusText: error.response.statusText,
         data: error.response.data
       } : null
+    });
+  }
+});
+
+// Resetar configurações de integração
+app.post('/api/integrations/reset', requireAuth, async (req, res) => {
+  try {
+    // Resetar configurações para padrões seguros
+    const defaultConfig = {
+      n8nTestUrl: '',
+      n8nProdUrl: '',
+      n8nSentUrl: '',
+      webhookReceiveUrl: '',
+      iaEnabled: false,
+      massDispatchBypass: true,
+      useTestUrl: false,
+      appmaxEnabled: false,
+      appmaxApiKey: '',
+      appmaxApiUrl: '',
+      appmaxWebhookSecret: ''
+    };
+    
+    // Salvar no banco
+    await saveIntegrationsToDB(defaultConfig, req.session.user?.username || 'system');
+    
+    // Atualizar cache em memória
+    integrationsConfig = defaultConfig;
+    
+    console.log('🔄 Configurações de integração resetadas para padrões seguros');
+    res.json({ 
+      success: true, 
+      message: 'Configurações resetadas com sucesso! IA desabilitada temporariamente.' 
+    });
+  } catch (error) {
+    console.error('❌ Erro ao resetar integrações:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao resetar configurações: ' + error.message 
     });
   }
 });
