@@ -383,8 +383,21 @@ async function saveIntegrationsToDB(config, updatedBy = 'system') {
 function initializeWhatsAppClient() {
   const whatsappConfig = platformConfig.getWhatsAppConfig();
   
+  // Criar clientId único baseado na porta para evitar conflitos entre instâncias
+  const uniqueClientId = `${whatsappConfig.clientId}-${PORT}`;
+  const sessionPath = `/tmp/whatsapp-sessions-${uniqueClientId}`;
+  
+  // Garantir que o diretório de sessão existe
+  if (!fs.existsSync(sessionPath)) {
+    fs.mkdirSync(sessionPath, { recursive: true });
+    console.log(`📁 Diretório de sessão criado: ${sessionPath}`);
+  }
+  
   whatsappClient = new Client({
-    authStrategy: new LocalAuth({ clientId: whatsappConfig.clientId }),
+    authStrategy: new LocalAuth({ 
+      clientId: uniqueClientId,
+      dataPath: sessionPath
+    }),
     puppeteer: whatsappConfig.puppeteer,
     authTimeoutMs: whatsappConfig.authTimeoutMs,
     restartOnAuthFail: whatsappConfig.restartOnAuthFail,
@@ -394,6 +407,8 @@ function initializeWhatsAppClient() {
   });
 
   console.log('🔧 Configuração do WhatsApp aplicada para:', platformConfig.isWindows ? 'Windows' : platformConfig.isMac ? 'macOS' : 'Linux');
+  console.log(`🆔 Client ID único: ${uniqueClientId}`);
+  console.log(`📁 Sessão em: ${sessionPath}`);
   
   setupClientEvents();
   whatsappClient.initialize();
@@ -1330,11 +1345,13 @@ app.post('/api/whatsapp/clear-session', requireAuth, async (req, res) => {
       await whatsappClient.destroy();
     }
     
-    // Limpar diretório de sessão
-    const sessionPath = path.join(__dirname, '.wwebjs_auth');
+    // Limpar diretório de sessão específico desta instância
+    const uniqueClientId = `${process.env.WHATSAPP_CLIENT_ID || 'clerky-crm'}-${PORT}`;
+    const sessionPath = `/tmp/whatsapp-sessions-${uniqueClientId}`;
+    
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
-      console.log('🗑️ Sessão WhatsApp limpa');
+      console.log(`🗑️ Sessão WhatsApp limpa: ${sessionPath}`);
     }
     
     whatsappClient = null;
@@ -13149,20 +13166,106 @@ setTimeout(() => {
   initializeWhatsAppClient();
 }, 2000);
 
+// Health check endpoint para EasyPanel
+app.get('/health', (req, res) => {
+  const healthStatus = {
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB'
+    },
+    whatsapp: {
+      connected: whatsappClient ? whatsappClient.info : null,
+      status: clientStatus || 'disconnected'
+    },
+    database: {
+      connected: mongoose.connection.readyState === 1,
+      state: mongoose.connection.readyState
+    },
+    environment: {
+      node_version: process.version,
+      platform: process.platform,
+      port: PORT
+    }
+  };
+  
+  res.status(200).json(healthStatus);
+});
+
 // Servidor
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+const HOST = process.env.HOST || '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
   console.log('🚀 Clerky CRM rodando na porta', PORT);
-  console.log('🌐 Acesse: http://localhost:' + PORT);
+  console.log('🌐 Acesse: http://' + HOST + ':' + PORT);
   console.log('📱 Aguardando conexão com WhatsApp...');
   console.log('⚡ Modo: Tempo real (sem salvar contatos no banco)');
+  console.log('🏥 Health check disponível em: http://' + HOST + ':' + PORT + '/health');
 });
+
+// Graceful shutdown para EasyPanel
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) {
+    console.log('🔄 Shutdown já em andamento...');
+    return;
+  }
+  
+  isShuttingDown = true;
+  console.log(`\n🛑 Recebido sinal ${signal}. Iniciando shutdown graceful...`);
+  
+  try {
+    // Fechar cliente WhatsApp
+    if (whatsappClient) {
+      console.log('📱 Fechando cliente WhatsApp...');
+      await whatsappClient.destroy();
+    }
+    
+    // Fechar servidor HTTP
+    if (server) {
+      console.log('🌐 Fechando servidor HTTP...');
+      await new Promise((resolve) => {
+        server.close(() => {
+          console.log('✅ Servidor HTTP fechado');
+          resolve();
+        });
+      });
+    }
+    
+    // Fechar conexão MongoDB
+    if (mongoose.connection.readyState === 1) {
+      console.log('🗄️ Fechando conexão MongoDB...');
+      await mongoose.connection.close();
+      console.log('✅ Conexão MongoDB fechada');
+    }
+    
+    console.log('✅ Shutdown graceful concluído');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Erro durante shutdown:', error);
+    process.exit(1);
+  }
+}
+
+// Tratamento de sinais para EasyPanel
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Error handlers
 process.on('uncaughtException', (error) => {
   console.error('❌ Erro não capturado:', error);
+  if (!isShuttingDown) {
+    gracefulShutdown('UNCAUGHT_EXCEPTION');
+  }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Promise rejeitada:', reason);
+  if (!isShuttingDown) {
+    gracefulShutdown('UNHANDLED_REJECTION');
+  }
 }); 
